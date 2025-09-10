@@ -1,0 +1,276 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:5.0
+    container_name: crowd-management-db
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: cctv_management
+    volumes:
+      - mongodb_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - crowd-management-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: crowd-management-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - crowd-management-network
+
+  # Main Server (Core API)
+  main-server:
+    build:
+      context: ./Main Server
+      dockerfile: Dockerfile
+    container_name: crowd-management-main-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_URI=mongodb://admin:password123@mongodb:27017/cctv_management?authSource=admin
+      - MONGODB_DATABASE=cctv_management
+      - REDIS_URL=redis://redis:6379
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:5173"]
+      - LOG_LEVEL=INFO
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./Main Server:/app
+      - main_server_logs:/app/logs
+    networks:
+      - crowd-management-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Lost & Found Server (AI Service)
+  lost-found-server:
+    build:
+      context: ./lost and found server
+      dockerfile: Dockerfile
+    container_name: crowd-management-lost-found
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/lost_found_db?authSource=admin
+      - DATABASE_NAME=lost_found_db
+      - MODEL_PATH=./yolov11s-face.pt
+      - FACE_CONFIDENCE_THRESHOLD=0.5
+      - MAX_FACE_DISTANCE=0.6
+    depends_on:
+      - mongodb
+    volumes:
+      - ./lost and found server:/app
+      - lost_found_logs:/app/logs
+      - face_models:/app/models
+    networks:
+      - crowd-management-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # CCTV Streaming Server
+  cctv-streaming:
+    build:
+      context: ./CCTV STREAMING SERVER
+      dockerfile: Dockerfile
+    container_name: crowd-management-cctv-streaming
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/cctv_management?authSource=admin
+      - DATABASE_NAME=cctv_management
+      - STREAM_QUALITY=medium
+      - MAX_CONCURRENT_STREAMS=50
+      - RTSP_TIMEOUT=30
+    depends_on:
+      - mongodb
+    volumes:
+      - ./CCTV STREAMING SERVER:/app
+      - streaming_logs:/app/logs
+      - video_cache:/app/cache
+    networks:
+      - crowd-management-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Admin Dashboard (Frontend)
+  admin-dashboard:
+    build:
+      context: ./Auth Dashboards
+      dockerfile: Dockerfile
+    container_name: crowd-management-admin-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_LOST_FOUND_API_URL=http://localhost:8001
+      - REACT_APP_STREAMING_API_URL=http://localhost:8002
+      - REACT_APP_CLERK_PUBLISHABLE_KEY=your_clerk_key_here
+    depends_on:
+      - main-server
+      - lost-found-server
+      - cctv-streaming
+    volumes:
+      - ./Auth Dashboards:/app
+      - dashboard_logs:/app/logs
+    networks:
+      - crowd-management-network
+
+  # Nginx Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: crowd-management-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - admin-dashboard
+      - main-server
+      - lost-found-server
+      - cctv-streaming
+    networks:
+      - crowd-management-network
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: crowd-management-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - crowd-management-network
+
+  # Monitoring - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: crowd-management-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - crowd-management-network
+
+  # Log Management - Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
+    container_name: crowd-management-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - crowd-management-network
+
+  # Log Management - Kibana
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.15.0
+    container_name: crowd-management-kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - crowd-management-network
+
+  # Log Management - Logstash
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.15.0
+    container_name: crowd-management-logstash
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./monitoring/logstash/config:/usr/share/logstash/config:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - crowd-management-network
+
+volumes:
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
+  main_server_logs:
+    driver: local
+  lost_found_logs:
+    driver: local
+  streaming_logs:
+    driver: local
+  dashboard_logs:
+    driver: local
+  nginx_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  face_models:
+    driver: local
+  video_cache:
+    driver: local
+
+networks:
+  crowd-management-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

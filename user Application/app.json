@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "Hackathon",
+    "slug": "Hackathon",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "hackathon",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.hackathon",
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"],
+        "NSLocationWhenInUseUsageDescription": "This app needs access to location when open to show your current location on the map.",
+        "NSLocationAlwaysUsageDescription": "This app needs access to location when in the background to show your current location on the map."
+      },
+      "config": {
+        "googleMapsApiKey": "YOUR_IOS_GOOGLE_MAPS_API_KEY"
+      }
+    },
+
+    "android": {
+      "package": "com.yourcompany.hackathon",
+      "edgeToEdgeEnabled": true,
+      "googleServicesFile": "./google-services.json",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyA0OKRnKl6DS9C_Jg0IVYvn57VeiA3p9t8"
+        }
+      }
+    },
+
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/firetruck.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#5D5FEF"
+        }
+      ]
+    ],
+
+    "experiments": {
+      "typedRoutes": true
+    },
+
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b1b92fbc-6f62-43bd-9a4e-9a2dac25f456"
+      }
+    },
+
+    "owner": "krishna_123_123"
+  }
+}
