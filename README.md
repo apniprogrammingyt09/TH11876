@@ -209,9 +209,9 @@ The system uses MongoDB with the following collections:
 
 ## 🖼️ System Screenshots
 
-### User Interactive Dashboard
+### User App
 ![User Interactive Map](images/1.png)
-*Interactive map showing user reports, alerts, and detailed information about found persons*
+*It Shows interactive map showing user reports, alerts, and detailed information about found persons*
 
 ### Super Admin Analytics
 ![Platform Analytics](images/0.png)
